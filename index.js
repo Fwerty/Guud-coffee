@@ -13,6 +13,7 @@ const PORT = process.env.PORT || 3000;
 const dataPath =
   process.env.RAILWAY_VOLUME_MOUNT_PATH || path.join(__dirname, "data");
 const productsPath = path.join(dataPath, "products.json");
+const settingsPath = path.join(dataPath, "settings.json");
 const imagesDir = path.join(dataPath, "images");
 
 function ensureDataDirs() {
@@ -68,6 +69,27 @@ function escapeHtml(s) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function readSettings() {
+  ensureDataDirs();
+  if (!fs.existsSync(settingsPath)) {
+    const def = { tables: 5 };
+    fs.writeFileSync(settingsPath, JSON.stringify(def, null, 2), "utf8");
+    return def;
+  }
+  try {
+    const raw = fs.readFileSync(settingsPath, "utf8");
+    const s = JSON.parse(raw);
+    return { tables: Math.max(1, Math.min(50, parseInt(s.tables, 10) || 5)) };
+  } catch {
+    return { tables: 5 };
+  }
+}
+
+function writeSettings(settings) {
+  ensureDataDirs();
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), "utf8");
 }
 
 // Multer: fotoğraflar data/images içine
@@ -142,6 +164,10 @@ let orderIdCounter = 1;
 
 // ============ ANA SAYFA ============
 app.get("/", (req, res) => {
+  const { tables } = readSettings();
+  const links = Array.from({ length: tables }, (_, i) => i + 1)
+    .map((n) => `<a href="/menu/${n}">Masa ${n}</a>`)
+    .join(" | ");
   res.send(`
     <!DOCTYPE html>
     <html>
@@ -152,18 +178,19 @@ app.get("/", (req, res) => {
       <p><a href="/panel" style="color:#f0a;text-decoration:none;">📋 Sipariş Paneli</a></p>
       <hr style="border-color:#444;margin:20px 0">
       <p><strong>Masa menüleri (QR için URL'ler):</strong></p>
-      <p><a href="/menu/1">Masa 1</a> | <a href="/menu/2">Masa 2</a> | <a href="/menu/3">Masa 3</a> | <a href="/menu/4">Masa 4</a> | <a href="/menu/5">Masa 5</a></p>
+      <p>${links}</p>
       <p style="font-size:0.9em;color:#888">QR kod oluşturmak için bu URL'leri <a href="https://www.qr-code-generator.com/" target="_blank" style="color:#c9a227">qr-code-generator.com</a> gibi sitelere yapıştırabilirsiniz.</p>
     </body>
     </html>
   `);
 });
 
-// ============ MENÜ SAYFASI (QR ile açılacak: /menu/1, /menu/2, ... /menu/5) ============
+// ============ MENÜ SAYFASI (QR ile açılacak: /menu/1, /menu/2, ...) ============
 app.get("/menu/:tableId", (req, res) => {
+  const { tables } = readSettings();
   const tableId = parseInt(req.params.tableId, 10);
-  if (isNaN(tableId) || tableId < 1 || tableId > 5) {
-    return res.status(404).send("Geçersiz masa numarası. 1-5 arası olmalı.");
+  if (isNaN(tableId) || tableId < 1 || tableId > tables) {
+    return res.status(404).send(`Geçersiz masa numarası. 1-${tables} arası olmalı.`);
   }
 
   const menu = readProducts();
@@ -330,12 +357,22 @@ app.get("/panel", adminAuth, (req, res) => {
         .add-product-form .submit { margin-top: 12px; padding: 8px 16px; background: #c9a227; color: #1a1a1a; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; }
         .edit-inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
         .edit-inline input { padding: 6px; border-radius: 4px; border: 1px solid #444; background: #1a1a1a; color: #fff; width: 120px; }
+        .settings-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
       </style>
     </head>
     <body>
       <h1>📋 Sipariş Paneli</h1>
-      <p>Gelen siparişler aşağıda görüntülenir. Onaylanan siparişler listeden kaldırılır. falan filan inter milan</p>
+      <p>Gelen siparişler aşağıda görüntülenir. Onaylanan siparişler listeden kaldırılır.</p>
       <div id="orderList" class="empty">Bekleyen sipariş yok.</div>
+
+      <div class="panel-section">
+        <h2>Masa Sayısı</h2>
+        <p>Dükkandaki masa adedi (QR kod için /menu/1 ... /menu/N)</p>
+        <div class="settings-row">
+          <input type="number" id="tablesCount" min="1" max="50" value="5" style="width:80px;padding:8px;border-radius:6px;border:1px solid #444;background:#1a1a1a;color:#fff">
+          <button type="button" class="submit" id="saveTablesBtn">Kaydet</button>
+        </div>
+      </div>
 
       <div class="panel-section">
         <h2>Menüyü Düzenle</h2>
@@ -389,6 +426,24 @@ app.get("/panel", adminAuth, (req, res) => {
         }
         loadOrders();
         setInterval(loadOrders, 5000);
+
+        // ----- Masa sayısı -----
+        async function loadSettings() {
+          const res = await fetch('/api/settings', { credentials: 'include' });
+          const data = await res.json();
+          document.getElementById('tablesCount').value = data.tables || 5;
+        }
+        document.getElementById('saveTablesBtn').onclick = async function() {
+          const n = parseInt(document.getElementById('tablesCount').value, 10);
+          if (isNaN(n) || n < 1 || n > 50) { alert('Masa sayısı 1-50 arası olmalı.'); return; }
+          try {
+            const res = await fetch('/api/settings', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tables: n }) });
+            const data = await res.json();
+            if (data.ok) alert('Masa sayısı kaydedildi.');
+            else alert(data.error || 'Kaydetme başarısız.');
+          } catch (e) { alert('Bağlantı hatası.'); }
+        };
+        loadSettings();
 
         // ----- Menü düzenleme -----
         async function loadProducts() {
@@ -511,6 +566,22 @@ app.post("/api/orders/:id/approve", adminAuth, (req, res) => {
 // ============ API: Ürün listesi (panel / menü) ============
 app.get("/api/products", (req, res) => {
   res.json({ products: readProducts() });
+});
+
+// ============ API: Ayarlar (masa sayısı) ============
+app.get("/api/settings", (req, res) => {
+  res.json(readSettings());
+});
+
+app.put("/api/settings", adminAuth, (req, res) => {
+  const tables = parseInt(req.body && req.body.tables, 10);
+  if (Number.isNaN(tables) || tables < 1 || tables > 50) {
+    return res.status(400).json({ ok: false, error: "Masa sayısı 1-50 arası olmalı." });
+  }
+  const s = readSettings();
+  s.tables = tables;
+  writeSettings(s);
+  res.json({ ok: true, settings: s });
 });
 
 // ============ API: Ürün ekle (sadece yetkili, multipart: name, price, image) ============
