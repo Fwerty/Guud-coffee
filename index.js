@@ -1,15 +1,95 @@
 // index.js - Guud Coffee QR Menü Uygulaması
 const express = require("express");
 const path = require("path");
+const fs = require("fs");
+const multer = require("multer");
 
 const app = express();
 
 // Port Railway otomatik atıyor, yoksa 3000 kullan
 const PORT = process.env.PORT || 3000;
 
+// ============ VERİ YOLU (Railway Persistent Volume veya yerel ./data) ============
+const dataPath = process.env.RAILWAY_VOLUME_MOUNT_PATH || path.join(__dirname, "data");
+const productsPath = path.join(dataPath, "products.json");
+const imagesDir = path.join(dataPath, "images");
+
+function ensureDataDirs() {
+  if (!fs.existsSync(dataPath)) fs.mkdirSync(dataPath, { recursive: true });
+  if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
+}
+
+const defaultProducts = [
+  { id: 1, name: "Espresso", price: 35, image: "" },
+  { id: 2, name: "Americano", price: 40, image: "" },
+  { id: 3, name: "Latte", price: 50, image: "" },
+  { id: 4, name: "Cappuccino", price: 50, image: "" },
+  { id: 5, name: "Mocha", price: 55, image: "" },
+  { id: 6, name: "Sütlü Kahve", price: 45, image: "" },
+  { id: 7, name: "Türk Kahvesi", price: 40, image: "" },
+  { id: 8, name: "Çay", price: 25, image: "" },
+  { id: 9, name: "Çikolatalı Cookie", price: 45, image: "" },
+  { id: 10, name: "Cheesecake Dilim", price: 55, image: "" },
+];
+
+function readProducts() {
+  ensureDataDirs();
+  if (!fs.existsSync(productsPath)) {
+    fs.writeFileSync(productsPath, JSON.stringify(defaultProducts, null, 2), "utf8");
+    return defaultProducts;
+  }
+  const raw = fs.readFileSync(productsPath, "utf8");
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    return defaultProducts;
+  }
+}
+
+function writeProducts(products) {
+  ensureDataDirs();
+  fs.writeFileSync(productsPath, JSON.stringify(products, null, 2), "utf8");
+}
+
+function nextProductId(products) {
+  const ids = products.map((p) => p.id).filter((n) => Number.isInteger(n));
+  return ids.length ? Math.max(...ids) + 1 : 1;
+}
+
+function escapeHtml(s) {
+  if (s == null) return "";
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// Multer: fotoğraflar data/images içine
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    ensureDataDirs();
+    cb(null, imagesDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = (file.originalname && path.extname(file.originalname)) || ".jpg";
+    cb(null, "img-" + Date.now() + "-" + Math.random().toString(36).slice(2) + ext);
+  },
+});
+const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB
+
 // Middleware
 app.use(express.json());
-app.use(express.static(path.join(__dirname, "public"))); // :)
+app.use(express.static(path.join(__dirname, "public")));
+
+// Yüklenen fotoğrafları servis et (JSON'da images/xxx.jpg gibi yol tutulacak)
+app.get("/uploads/:filename", (req, res) => {
+  const filename = path.basename(req.params.filename);
+  if (!filename) return res.status(400).end();
+  const filePath = path.join(imagesDir, filename);
+  if (!fs.existsSync(filePath)) return res.status(404).end();
+  res.sendFile(filePath);
+});
 
 // ============ ADMIN BASIC AUTH (Railway: ADMIN_USER, ADMIN_PASS) ============
 const adminAuth = (req, res, next) => {
@@ -47,20 +127,6 @@ const adminAuth = (req, res, next) => {
 const orders = [];
 let orderIdCounter = 1;
 
-// ============ MENÜ VERİSİ ============
-const menu = [
-  { id: 1, name: "Espresso", price: 35 },
-  { id: 2, name: "Americano", price: 40 },
-  { id: 3, name: "Latte", price: 50 },
-  { id: 4, name: "Cappuccino", price: 50 },
-  { id: 5, name: "Mocha", price: 55 },
-  { id: 6, name: "Sütlü Kahve", price: 45 },
-  { id: 7, name: "Türk Kahvesi", price: 40 },
-  { id: 8, name: "Çay", price: 25 },
-  { id: 9, name: "Çikolatalı Cookie", price: 45 },
-  { id: 10, name: "Cheesecake Dilim", price: 55 },
-];
-
 // ============ ANA SAYFA ============
 app.get("/", (req, res) => {
   res.send(`
@@ -87,15 +153,20 @@ app.get("/menu/:tableId", (req, res) => {
     return res.status(404).send("Geçersiz masa numarası. 1-5 arası olmalı.");
   }
 
+  const menu = readProducts();
   const menuItemsHtml = menu
     .map(
-      (item) => `
-      <div class="menu-item" data-id="${item.id}" data-name="${item.name}" data-price="${item.price}">
-        <span class="name">${item.name}</span>
+      (item) => {
+        const img = item.image ? '<img class="menu-item-img" src="/uploads/' + item.image + '" alt="">' : '';
+        return `
+      <div class="menu-item" data-id="${item.id}" data-name="${escapeHtml(item.name)}" data-price="${item.price}">
+        ${img}
+        <span class="name">${escapeHtml(item.name)}</span>
         <span class="price">${item.price} ₺</span>
         <button class="add-btn">+</button>
       </div>
-    `,
+    `;
+      },
     )
     .join("");
 
@@ -114,6 +185,7 @@ app.get("/menu/:tableId", (req, res) => {
         .menu-list { max-width: 400px; margin: 0 auto; }
         .menu-item { display: flex; align-items: center; justify-content: space-between; 
           padding: 16px; background: #2a2a2a; margin-bottom: 8px; border-radius: 10px; border: 1px solid #333; }
+        .menu-item-img { width: 48px; height: 48px; object-fit: cover; border-radius: 8px; margin-right: 12px; }
         .menu-item .name { flex: 1; font-size: 1.1em; }
         .menu-item .price { color: #c9a227; margin: 0 12px; }
         .add-btn { background: #c9a227; color: #1a1a1a; border: none; width: 36px; height: 36px; 
@@ -228,12 +300,44 @@ app.get("/panel", adminAuth, (req, res) => {
         .order-actions { margin-top: 10px; display: flex; justify-content: flex-end; }
         .approve-btn { padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; background: #22c55e; color: #041207; font-weight: 600; font-size: 0.9em; }
         .approve-btn:hover { background: #16a34a; }
+        .panel-section { margin-top: 32px; padding-top: 24px; border-top: 1px solid #333; }
+        .panel-section h2 { color: #c9a227; font-size: 1.2em; }
+        .product-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid #333; }
+        .product-row img { width: 48px; height: 48px; object-fit: cover; border-radius: 8px; }
+        .product-row .info { flex: 1; }
+        .product-row .name { font-weight: 600; }
+        .product-row .price { color: #c9a227; }
+        .product-row .acts { display: flex; gap: 8px; }
+        .product-row .acts button { padding: 6px 10px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.85em; }
+        .btn-edit { background: #3b82f6; color: #fff; }
+        .btn-delete { background: #dc2626; color: #fff; }
+        .add-product-form { margin-top: 16px; padding: 16px; background: #2a2a2a; border-radius: 10px; max-width: 400px; }
+        .add-product-form input, .add-product-form label { display: block; margin-bottom: 8px; }
+        .add-product-form input[type="text"], .add-product-form input[type="number"] { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #444; background: #1a1a1a; color: #fff; }
+        .add-product-form .submit { margin-top: 12px; padding: 8px 16px; background: #c9a227; color: #1a1a1a; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; }
+        .edit-inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .edit-inline input { padding: 6px; border-radius: 4px; border: 1px solid #444; background: #1a1a1a; color: #fff; width: 120px; }
       </style>
     </head>
     <body>
       <h1>📋 Sipariş Paneli</h1>
       <p>Gelen siparişler aşağıda görüntülenir. Onaylanan siparişler listeden kaldırılır.</p>
       <div id="orderList" class="empty">Bekleyen sipariş yok.</div>
+
+      <div class="panel-section">
+        <h2>Menüyü Düzenle</h2>
+        <p>Ürün ekleyebilir, isim/fiyat/fotoğraf güncelleyebilir veya silebilirsiniz.</p>
+        <div id="productList">Yükleniyor...</div>
+        <div class="add-product-form">
+          <label>Yeni ürün adı</label>
+          <input type="text" id="newName" placeholder="Örn: Filtre Kahve">
+          <label>Fiyat (₺)</label>
+          <input type="number" id="newPrice" min="0" placeholder="45">
+          <label>Fotoğraf (isteğe bağlı)</label>
+          <input type="file" id="newImage" accept="image/*">
+          <button type="button" class="submit" id="addProductBtn">Ürün Ekle</button>
+        </div>
+      </div>
 
       <script>
         async function approveOrder(id) {
@@ -272,6 +376,82 @@ app.get("/panel", adminAuth, (req, res) => {
         }
         loadOrders();
         setInterval(loadOrders, 5000);
+
+        // ----- Menü düzenleme -----
+        async function loadProducts() {
+          const res = await fetch('/api/products', { credentials: 'include' });
+          const data = await res.json();
+          const el = document.getElementById('productList');
+          if (!data.products || data.products.length === 0) {
+            el.innerHTML = 'Henüz ürün yok. Aşağıdan ekleyin.';
+            return;
+          }
+          el.innerHTML = data.products.map(p => {
+            const img = p.image ? '<img src="/uploads/' + p.image + '" alt="">' : '<span style="width:48px;height:48px;background:#333;border-radius:8px;display:inline-block;text-align:center;line-height:48px;color:#666">?</span>';
+            return '<div class="product-row" data-id="' + p.id + '">' +
+              img + '<div class="info"><span class="name">' + escapeHtml(p.name) + '</span><br><span class="price">' + p.price + ' ₺</span></div>' +
+              '<div class="acts"><button class="btn-edit" onclick="startEdit(' + p.id + ')">Düzenle</button><button class="btn-delete" onclick="deleteProduct(' + p.id + ')">Sil</button></div>' +
+              '<div class="edit-inline" id="edit-' + p.id + '" style="display:none;width:100%">' +
+              '<input type="text" id="edit-name-' + p.id + '" value="' + escapeHtml(p.name) + '" placeholder="İsim">' +
+              '<input type="number" id="edit-price-' + p.id + '" value="' + p.price + '" placeholder="Fiyat">' +
+              '<input type="file" id="edit-image-' + p.id + '" accept="image/*">' +
+              '<button class="btn-edit" onclick="saveEdit(' + p.id + ')">Kaydet</button>' +
+              '<button class="btn-delete" onclick="cancelEdit(' + p.id + ')">İptal</button>' +
+              '</div>' +
+              '</div>';
+          }).join('');
+        }
+        function escapeHtml(s) { var d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+        function startEdit(id) {
+          document.querySelectorAll('.edit-inline').forEach(el => el.style.display = 'none');
+          const el = document.getElementById('edit-' + id);
+          if (el) el.style.display = 'flex';
+        }
+        function cancelEdit(id) {
+          const el = document.getElementById('edit-' + id);
+          if (el) el.style.display = 'none';
+        }
+        async function saveEdit(id) {
+          const name = document.getElementById('edit-name-' + id).value.trim();
+          const price = parseInt(document.getElementById('edit-price-' + id).value, 10);
+          const fileInput = document.getElementById('edit-image-' + id);
+          const form = new FormData();
+          form.append('name', name);
+          form.append('price', isNaN(price) ? 0 : price);
+          if (fileInput.files[0]) form.append('image', fileInput.files[0]);
+          try {
+            const res = await fetch('/api/products/' + id, { method: 'PUT', credentials: 'include', body: form });
+            const data = await res.json();
+            if (data.ok) { cancelEdit(id); await loadProducts(); }
+            else alert(data.error || 'Güncelleme başarısız.');
+          } catch (e) { alert('Bağlantı hatası.'); }
+        }
+        async function deleteProduct(id) {
+          if (!confirm('Bu ürünü silmek istediğinize emin misiniz?')) return;
+          try {
+            const res = await fetch('/api/products/' + id, { method: 'DELETE', credentials: 'include' });
+            const data = await res.json();
+            if (data.ok) await loadProducts();
+            else alert(data.error || 'Silme başarısız.');
+          } catch (e) { alert('Bağlantı hatası.'); }
+        }
+        document.getElementById('addProductBtn').onclick = async function() {
+          const name = document.getElementById('newName').value.trim();
+          const price = parseInt(document.getElementById('newPrice').value, 10);
+          const fileInput = document.getElementById('newImage');
+          if (!name || isNaN(price) || price < 0) { alert('İsim ve geçerli fiyat girin.'); return; }
+          const form = new FormData();
+          form.append('name', name);
+          form.append('price', price);
+          if (fileInput.files[0]) form.append('image', fileInput.files[0]);
+          try {
+            const res = await fetch('/api/products', { method: 'POST', credentials: 'include', body: form });
+            const data = await res.json();
+            if (data.ok) { document.getElementById('newName').value = ''; document.getElementById('newPrice').value = ''; fileInput.value = ''; await loadProducts(); }
+            else alert(data.error || 'Ekleme başarısız.');
+          } catch (e) { alert('Bağlantı hatası.'); }
+        };
+        loadProducts();
       </script>
     </body>
     </html>
@@ -315,8 +495,66 @@ app.post("/api/orders/:id/approve", adminAuth, (req, res) => {
   return res.json({ ok: true });
 });
 
+// ============ API: Ürün listesi (panel / menü) ============
+app.get("/api/products", (req, res) => {
+  res.json({ products: readProducts() });
+});
+
+// ============ API: Ürün ekle (sadece yetkili, multipart: name, price, image) ============
+app.post("/api/products", adminAuth, upload.single("image"), (req, res) => {
+  const name = (req.body && req.body.name && req.body.name.trim()) || "";
+  const price = parseInt(req.body && req.body.price, 10);
+  if (!name || Number.isNaN(price) || price < 0) {
+    return res.status(400).json({ ok: false, error: "İsim ve geçerli fiyat gerekli." });
+  }
+  const products = readProducts();
+  const imageFilename = req.file ? req.file.filename : "";
+  const newProduct = {
+    id: nextProductId(products),
+    name: name.trim(),
+    price,
+    image: imageFilename,
+  };
+  products.push(newProduct);
+  writeProducts(products);
+  res.json({ ok: true, product: newProduct });
+});
+
+// ============ API: Ürün güncelle (sadece yetkili) ============
+app.put("/api/products/:id", adminAuth, upload.single("image"), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ ok: false, error: "Geçersiz ID." });
+  const products = readProducts();
+  const idx = products.findIndex((p) => p.id === id);
+  if (idx === -1) return res.status(404).json({ ok: false, error: "Ürün bulunamadı." });
+  const name = (req.body && req.body.name != null && String(req.body.name).trim()) || products[idx].name;
+  const priceRaw = req.body && req.body.price;
+  const price = priceRaw != null && priceRaw !== "" ? parseInt(priceRaw, 10) : products[idx].price;
+  if (Number.isNaN(price) || price < 0) return res.status(400).json({ ok: false, error: "Geçersiz fiyat." });
+  products[idx].name = name.trim();
+  products[idx].price = price;
+  if (req.file && req.file.filename) products[idx].image = req.file.filename;
+  writeProducts(products);
+  res.json({ ok: true, product: products[idx] });
+});
+
+// ============ API: Ürün sil (sadece yetkili) ============
+app.delete("/api/products/:id", adminAuth, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ ok: false, error: "Geçersiz ID." });
+  const products = readProducts();
+  const idx = products.findIndex((p) => p.id === id);
+  if (idx === -1) return res.status(404).json({ ok: false, error: "Ürün bulunamadı." });
+  products.splice(idx, 1);
+  writeProducts(products);
+  res.json({ ok: true });
+});
+
+ensureDataDirs();
+
 app.listen(PORT, () => {
   console.log(`Guud Coffee server port ${PORT} üzerinde çalışıyor`);
   const hasAuth = !!(process.env.ADMIN_USER && process.env.ADMIN_PASS);
   console.log(`Panel auth: ${hasAuth ? "OK (ADMIN_USER, ADMIN_PASS tanımlı)" : "UYARI: ADMIN_USER veya ADMIN_PASS eksik - /panel 500 verecek"}`);
+  console.log(`Veri klasörü (ürünler + fotoğraflar): ${dataPath} ${process.env.RAILWAY_VOLUME_MOUNT_PATH ? "(Railway volume)" : "(yerel)"}`);
 });
