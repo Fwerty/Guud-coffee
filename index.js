@@ -24,7 +24,7 @@ const adminAuth = (req, res, next) => {
     }
     const auth = req.headers.authorization;
     if (!auth || !auth.startsWith("Basic ")) {
-      res.setHeader("WWW-Authenticate", 'Basic realm="Sipariş Paneli"');
+      res.setHeader("WWW-Authenticate", 'Basic realm="Guud Coffee Panel"');
       return res.status(401).send("Yetkisiz erişim.");
     }
     const b64 = auth.slice(6).trim();
@@ -33,7 +33,7 @@ const adminAuth = (req, res, next) => {
     const u = colonIdx >= 0 ? decoded.slice(0, colonIdx) : decoded;
     const p = colonIdx >= 0 ? decoded.slice(colonIdx + 1) : "";
     if (u !== user || p !== pass) {
-      res.setHeader("WWW-Authenticate", 'Basic realm="Sipariş Paneli"');
+      res.setHeader("WWW-Authenticate", 'Basic realm="Guud Coffee Panel"');
       return res.status(401).send("Kullanıcı adı veya şifre hatalı.");
     }
     next();
