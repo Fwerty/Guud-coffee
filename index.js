@@ -10,7 +10,8 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ============ VERİ YOLU (Railway Persistent Volume veya yerel ./data) ============
-const dataPath = process.env.RAILWAY_VOLUME_MOUNT_PATH || path.join(__dirname, "data");
+const dataPath =
+  process.env.RAILWAY_VOLUME_MOUNT_PATH || path.join(__dirname, "data");
 const productsPath = path.join(dataPath, "products.json");
 const imagesDir = path.join(dataPath, "images");
 
@@ -35,7 +36,11 @@ const defaultProducts = [
 function readProducts() {
   ensureDataDirs();
   if (!fs.existsSync(productsPath)) {
-    fs.writeFileSync(productsPath, JSON.stringify(defaultProducts, null, 2), "utf8");
+    fs.writeFileSync(
+      productsPath,
+      JSON.stringify(defaultProducts, null, 2),
+      "utf8",
+    );
     return defaultProducts;
   }
   const raw = fs.readFileSync(productsPath, "utf8");
@@ -72,8 +77,12 @@ const storage = multer.diskStorage({
     cb(null, imagesDir);
   },
   filename: (req, file, cb) => {
-    const ext = (file.originalname && path.extname(file.originalname)) || ".jpg";
-    cb(null, "img-" + Date.now() + "-" + Math.random().toString(36).slice(2) + ext);
+    const ext =
+      (file.originalname && path.extname(file.originalname)) || ".jpg";
+    cb(
+      null,
+      "img-" + Date.now() + "-" + Math.random().toString(36).slice(2) + ext,
+    );
   },
 });
 const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB
@@ -97,10 +106,14 @@ const adminAuth = (req, res, next) => {
     const user = process.env.ADMIN_USER || "";
     const pass = process.env.ADMIN_PASS || "";
     if (!user.trim() || !pass) {
-      console.error("Panel auth failed: ADMIN_USER veya ADMIN_PASS Railway Variables'da tanımlı değil.");
-      return res.status(500).send(
-        "Admin kimlik bilgileri tanımlı değil. Railway Dashboard > Variables > ADMIN_USER ve ADMIN_PASS ekleyin."
+      console.error(
+        "Panel auth failed: ADMIN_USER veya ADMIN_PASS Railway Variables'da tanımlı değil.",
       );
+      return res
+        .status(500)
+        .send(
+          "Admin kimlik bilgileri tanımlı değil. Railway Dashboard > Variables > ADMIN_USER ve ADMIN_PASS ekleyin.",
+        );
     }
     const auth = req.headers.authorization;
     if (!auth || !auth.startsWith("Basic ")) {
@@ -155,10 +168,11 @@ app.get("/menu/:tableId", (req, res) => {
 
   const menu = readProducts();
   const menuItemsHtml = menu
-    .map(
-      (item) => {
-        const img = item.image ? '<img class="menu-item-img" src="/uploads/' + item.image + '" alt="">' : '';
-        return `
+    .map((item) => {
+      const img = item.image
+        ? '<img class="menu-item-img" src="/uploads/' + item.image + '" alt="">'
+        : "";
+      return `
       <div class="menu-item" data-id="${item.id}" data-name="${escapeHtml(item.name)}" data-price="${item.price}">
         ${img}
         <span class="name">${escapeHtml(item.name)}</span>
@@ -166,8 +180,7 @@ app.get("/menu/:tableId", (req, res) => {
         <button class="add-btn">+</button>
       </div>
     `;
-      },
-    )
+    })
     .join("");
 
   res.send(`
@@ -321,7 +334,7 @@ app.get("/panel", adminAuth, (req, res) => {
     </head>
     <body>
       <h1>📋 Sipariş Paneli</h1>
-      <p>Gelen siparişler aşağıda görüntülenir. Onaylanan siparişler listeden kaldırılır.</p>
+      <p>Gelen siparişler aşağıda görüntülenir. Onaylanan siparişler listeden kaldırılır. falan filan inter milan</p>
       <div id="orderList" class="empty">Bekleyen sipariş yok.</div>
 
       <div class="panel-section">
@@ -505,7 +518,9 @@ app.post("/api/products", adminAuth, upload.single("image"), (req, res) => {
   const name = (req.body && req.body.name && req.body.name.trim()) || "";
   const price = parseInt(req.body && req.body.price, 10);
   if (!name || Number.isNaN(price) || price < 0) {
-    return res.status(400).json({ ok: false, error: "İsim ve geçerli fiyat gerekli." });
+    return res
+      .status(400)
+      .json({ ok: false, error: "İsim ve geçerli fiyat gerekli." });
   }
   const products = readProducts();
   const imageFilename = req.file ? req.file.filename : "";
@@ -523,14 +538,22 @@ app.post("/api/products", adminAuth, upload.single("image"), (req, res) => {
 // ============ API: Ürün güncelle (sadece yetkili) ============
 app.put("/api/products/:id", adminAuth, upload.single("image"), (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (Number.isNaN(id)) return res.status(400).json({ ok: false, error: "Geçersiz ID." });
+  if (Number.isNaN(id))
+    return res.status(400).json({ ok: false, error: "Geçersiz ID." });
   const products = readProducts();
   const idx = products.findIndex((p) => p.id === id);
-  if (idx === -1) return res.status(404).json({ ok: false, error: "Ürün bulunamadı." });
-  const name = (req.body && req.body.name != null && String(req.body.name).trim()) || products[idx].name;
+  if (idx === -1)
+    return res.status(404).json({ ok: false, error: "Ürün bulunamadı." });
+  const name =
+    (req.body && req.body.name != null && String(req.body.name).trim()) ||
+    products[idx].name;
   const priceRaw = req.body && req.body.price;
-  const price = priceRaw != null && priceRaw !== "" ? parseInt(priceRaw, 10) : products[idx].price;
-  if (Number.isNaN(price) || price < 0) return res.status(400).json({ ok: false, error: "Geçersiz fiyat." });
+  const price =
+    priceRaw != null && priceRaw !== ""
+      ? parseInt(priceRaw, 10)
+      : products[idx].price;
+  if (Number.isNaN(price) || price < 0)
+    return res.status(400).json({ ok: false, error: "Geçersiz fiyat." });
   products[idx].name = name.trim();
   products[idx].price = price;
   if (req.file && req.file.filename) products[idx].image = req.file.filename;
@@ -541,20 +564,21 @@ app.put("/api/products/:id", adminAuth, upload.single("image"), (req, res) => {
 // ============ API: Ürün sil (sadece yetkili) ============
 app.delete("/api/products/:id", adminAuth, (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (Number.isNaN(id)) return res.status(400).json({ ok: false, error: "Geçersiz ID." });
+  if (Number.isNaN(id))
+    return res.status(400).json({ ok: false, error: "Geçersiz ID." });
   const products = readProducts();
   const idx = products.findIndex((p) => p.id === id);
-  if (idx === -1) return res.status(404).json({ ok: false, error: "Ürün bulunamadı." });
+  if (idx === -1)
+    return res.status(404).json({ ok: false, error: "Ürün bulunamadı." });
   products.splice(idx, 1);
   writeProducts(products);
   res.json({ ok: true });
 });
 
-ensureDataDirs();
-
 app.listen(PORT, () => {
   console.log(`Guud Coffee server port ${PORT} üzerinde çalışıyor`);
   const hasAuth = !!(process.env.ADMIN_USER && process.env.ADMIN_PASS);
-  console.log(`Panel auth: ${hasAuth ? "OK (ADMIN_USER, ADMIN_PASS tanımlı)" : "UYARI: ADMIN_USER veya ADMIN_PASS eksik - /panel 500 verecek"}`);
-  console.log(`Veri klasörü (ürünler + fotoğraflar): ${dataPath} ${process.env.RAILWAY_VOLUME_MOUNT_PATH ? "(Railway volume)" : "(yerel)"}`);
+  console.log(
+    `Panel auth: ${hasAuth ? "OK (ADMIN_USER, ADMIN_PASS tanımlı)" : "UYARI: ADMIN_USER veya ADMIN_PASS eksik - /panel 500 verecek"}`,
+  );
 });
