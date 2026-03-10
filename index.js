@@ -11,6 +11,27 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
+// ============ ADMIN BASIC AUTH (Railway: ADMIN_USER, ADMIN_PASS) ============
+const adminAuth = (req, res, next) => {
+  const user = process.env.ADMIN_USER;
+  const pass = process.env.ADMIN_PASS;
+  if (!user || !pass) {
+    return res.status(500).send("Admin kimlik bilgileri tanımlı değil (ADMIN_USER, ADMIN_PASS).");
+  }
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith("Basic ")) {
+    res.setHeader("WWW-Authenticate", 'Basic realm="Sipariş Paneli"');
+    return res.status(401).send("Yetkisiz erişim.");
+  }
+  const b64 = auth.slice(6);
+  const [u, p] = Buffer.from(b64, "base64").toString().split(":");
+  if (u !== user || p !== pass) {
+    res.setHeader("WWW-Authenticate", 'Basic realm="Sipariş Paneli"');
+    return res.status(401).send("Kullanıcı adı veya şifre hatalı.");
+  }
+  next();
+};
+
 // ============ SİPARİŞ DEPOLAMA (şimdilik bellek içinde) ============
 const orders = [];
 let orderIdCounter = 1;
@@ -174,8 +195,8 @@ app.get("/menu/:tableId", (req, res) => {
   `);
 });
 
-// ============ SİPARİŞ PANELİ ============
-app.get("/panel", (req, res) => {
+// ============ SİPARİŞ PANELİ (sadece yetkili) ============
+app.get("/panel", adminAuth, (req, res) => {
   res.send(`
     <!DOCTYPE html>
     <html>
@@ -202,7 +223,7 @@ app.get("/panel", (req, res) => {
 
       <script>
         async function loadOrders() {
-          const res = await fetch('/api/orders');
+          const res = await fetch('/api/orders', { credentials: 'include' });
           const data = await res.json();
           const el = document.getElementById('orderList');
           if (!data.orders || data.orders.length === 0) {
@@ -243,8 +264,8 @@ app.post("/api/orders", (req, res) => {
   res.json({ ok: true, orderId: order.id });
 });
 
-// ============ API: Siparişleri listele ============
-app.get("/api/orders", (req, res) => {
+// ============ API: Siparişleri listele (sadece yetkili) ============
+app.get("/api/orders", adminAuth, (req, res) => {
   res.json({ orders: [...orders].reverse() });
 });
 
