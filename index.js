@@ -304,7 +304,8 @@ app.get("/menu/:tableId", (req, res) => {
             if (data.ok) {
               Object.keys(cart).forEach(k => delete cart[k]);
               renderCart();
-              document.getElementById('menuList').innerHTML = '<p class="success-msg">✓ Siparişiniz alındı!</p>';
+              document.getElementById('menuList').innerHTML = '<p class="success-msg" id="orderStatusMsg">Siparişinizin onaylanması bekleniyor.</p>';
+              pollOrderStatus(data.orderId);
             } else {
               alert('Sipariş gönderilemedi.');
             }
@@ -312,6 +313,22 @@ app.get("/menu/:tableId", (req, res) => {
             alert('Bağlantı hatası.');
           }
         });
+        
+        function pollOrderStatus(orderId) {
+          const el = document.getElementById('orderStatusMsg');
+          if (!el) return;
+          const t = setInterval(async () => {
+            try {
+              const res = await fetch('/api/orders/' + orderId + '/status');
+              const data = await res.json();
+              if (data.status === 'approved') {
+                clearInterval(t);
+                el.textContent = 'Siparişiniz onaylandı.';
+                el.style.color = '#4ade80';
+              }
+            } catch (_) {}
+          }, 3000);
+        }
       </script>
     </body>
     </html>
@@ -561,6 +578,15 @@ app.post("/api/orders/:id/approve", adminAuth, (req, res) => {
   }
   order.status = "approved";
   return res.json({ ok: true });
+});
+
+// ============ API: Sipariş durumu (müşteri polling için, herkese açık) ============
+app.get("/api/orders/:id/status", (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ status: "unknown" });
+  const order = orders.find((o) => o.id === id);
+  if (!order) return res.status(404).json({ status: "unknown" });
+  res.json({ status: order.status || "pending" });
 });
 
 // ============ API: Ürün listesi (panel / menü) ============
