@@ -225,14 +225,29 @@ app.get("/panel", adminAuth, (req, res) => {
         .order-card .time { color: #666; font-size: 0.9em; }
         #orderList { max-width: 500px; }
         .empty { color: #666; }
+        .order-actions { margin-top: 10px; display: flex; justify-content: flex-end; }
+        .approve-btn { padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; background: #22c55e; color: #041207; font-weight: 600; font-size: 0.9em; }
+        .approve-btn:hover { background: #16a34a; }
       </style>
     </head>
     <body>
       <h1>📋 Sipariş Paneli</h1>
-      <p>Gelen siparişler aşağıda görüntülenir.</p>
+      <p>Gelen siparişler aşağıda görüntülenir. Onaylanan siparişler listeden kaldırılır.</p>
       <div id="orderList" class="empty">Bekleyen sipariş yok.</div>
 
       <script>
+        async function approveOrder(id) {
+          try {
+            await fetch('/api/orders/' + id + '/approve', {
+              method: 'POST',
+              credentials: 'include'
+            });
+            await loadOrders();
+          } catch (e) {
+            alert('Sipariş onaylanırken hata oluştu.');
+          }
+        }
+
         async function loadOrders() {
           const res = await fetch('/api/orders', { credentials: 'include' });
           const data = await res.json();
@@ -247,7 +262,12 @@ app.get("/panel", adminAuth, (req, res) => {
             const items = o.items.map(i => i.name + ' x' + i.qty + ' (' + (i.price * i.qty) + ' ₺)').join('<br>');
             const total = o.items.reduce((s, i) => s + i.price * i.qty, 0);
             const time = new Date(o.createdAt).toLocaleTimeString('tr-TR');
-            return '<div class="order-card"><div class="header">Masa ' + o.tableId + ' <span class="time">' + time + '</span></div><div class="items">' + items + '</div><div style="margin-top:8px;color:#c9a227">Toplam: ' + total + ' ₺</div></div>';
+            return '<div class="order-card">' +
+              '<div class="header">Masa ' + o.tableId + ' <span class="time">' + time + '</span></div>' +
+              '<div class="items">' + items + '</div>' +
+              '<div style="margin-top:8px;color:#c9a227">Toplam: ' + total + ' ₺</div>' +
+              '<div class="order-actions"><button class="approve-btn" onclick="approveOrder(' + o.id + ')">Onayla</button></div>' +
+              '</div>';
           }).join('');
         }
         loadOrders();
@@ -277,7 +297,22 @@ app.post("/api/orders", (req, res) => {
 
 // ============ API: Siparişleri listele (sadece yetkili) ============
 app.get("/api/orders", adminAuth, (req, res) => {
-  res.json({ orders: [...orders].reverse() });
+  const pending = orders.filter((o) => o.status !== "approved");
+  res.json({ orders: [...pending].reverse() });
+});
+
+// ============ API: Siparişi onayla (sadece yetkili) ============
+app.post("/api/orders/:id/approve", adminAuth, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) {
+    return res.status(400).json({ ok: false, error: "Geçersiz sipariş ID." });
+  }
+  const order = orders.find((o) => o.id === id);
+  if (!order) {
+    return res.status(404).json({ ok: false, error: "Sipariş bulunamadı." });
+  }
+  order.status = "approved";
+  return res.json({ ok: true });
 });
 
 app.listen(PORT, () => {
