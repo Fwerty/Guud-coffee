@@ -13,25 +13,34 @@ app.use(express.static(path.join(__dirname, "public"))); // :)
 
 // ============ ADMIN BASIC AUTH (Railway: ADMIN_USER, ADMIN_PASS) ============
 const adminAuth = (req, res, next) => {
-  const user = process.env.ADMIN_USER;
-  const pass = process.env.ADMIN_PASS;
-  if (!user || !pass) {
-    return res
-      .status(500)
-      .send("Admin kimlik bilgileri tanımlı değil (ADMIN_USER, ADMIN_PASS).");
+  try {
+    const user = process.env.ADMIN_USER || "";
+    const pass = process.env.ADMIN_PASS || "";
+    if (!user.trim() || !pass) {
+      console.error("Panel auth failed: ADMIN_USER veya ADMIN_PASS Railway Variables'da tanımlı değil.");
+      return res.status(500).send(
+        "Admin kimlik bilgileri tanımlı değil. Railway Dashboard > Variables > ADMIN_USER ve ADMIN_PASS ekleyin."
+      );
+    }
+    const auth = req.headers.authorization;
+    if (!auth || !auth.startsWith("Basic ")) {
+      res.setHeader("WWW-Authenticate", 'Basic realm="Sipariş Paneli"');
+      return res.status(401).send("Yetkisiz erişim.");
+    }
+    const b64 = auth.slice(6).trim();
+    const decoded = Buffer.from(b64, "base64").toString("utf8");
+    const colonIdx = decoded.indexOf(":");
+    const u = colonIdx >= 0 ? decoded.slice(0, colonIdx) : decoded;
+    const p = colonIdx >= 0 ? decoded.slice(colonIdx + 1) : "";
+    if (u !== user || p !== pass) {
+      res.setHeader("WWW-Authenticate", 'Basic realm="Sipariş Paneli"');
+      return res.status(401).send("Kullanıcı adı veya şifre hatalı.");
+    }
+    next();
+  } catch (err) {
+    console.error("Panel auth error:", err);
+    return res.status(500).send("Sunucu hatası. Railway loglarına bakın.");
   }
-  const auth = req.headers.authorization;
-  if (!auth || !auth.startsWith("Basic ")) {
-    res.setHeader("WWW-Authenticate", 'Basic realm="Sipariş Paneli"');
-    return res.status(401).send("Yetkisiz erişim.");
-  }
-  const b64 = auth.slice(6);
-  const [u, p] = Buffer.from(b64, "base64").toString().split(":");
-  if (u !== user || p !== pass) {
-    res.setHeader("WWW-Authenticate", 'Basic realm="Sipariş Paneli"');
-    return res.status(401).send("Kullanıcı adı veya şifre hatalı.");
-  }
-  next();
 };
 
 // ============ SİPARİŞ DEPOLAMA (şimdilik bellek içinde) ============
@@ -273,4 +282,6 @@ app.get("/api/orders", adminAuth, (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Guud Coffee server port ${PORT} üzerinde çalışıyor`);
+  const hasAuth = !!(process.env.ADMIN_USER && process.env.ADMIN_PASS);
+  console.log(`Panel auth: ${hasAuth ? "OK (ADMIN_USER, ADMIN_PASS tanımlı)" : "UYARI: ADMIN_USER veya ADMIN_PASS eksik - /panel 500 verecek"}`);
 });
