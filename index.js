@@ -9,14 +9,16 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(express.json());
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(path.join(__dirname, "public"))); // :)
 
 // ============ ADMIN BASIC AUTH (Railway: ADMIN_USER, ADMIN_PASS) ============
 const adminAuth = (req, res, next) => {
   const user = process.env.ADMIN_USER;
   const pass = process.env.ADMIN_PASS;
   if (!user || !pass) {
-    return res.status(500).send("Admin kimlik bilgileri tanımlı değil (ADMIN_USER, ADMIN_PASS).");
+    return res
+      .status(500)
+      .send("Admin kimlik bilgileri tanımlı değil (ADMIN_USER, ADMIN_PASS).");
   }
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith("Basic ")) {
@@ -84,7 +86,7 @@ app.get("/menu/:tableId", (req, res) => {
         <span class="price">${item.price} ₺</span>
         <button class="add-btn">+</button>
       </div>
-    `
+    `,
     )
     .join("");
 
